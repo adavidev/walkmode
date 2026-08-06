@@ -1,0 +1,39 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,700&family=Source+Sans+3:wght@400;600&display=swap');
+
+:root {
+  --ink: #e8efe9;
+  --panel: rgba(18, 32, 28, 0.88);
+  --accent: #7dcfb6;
+  --forest: #a8e6cf;
+  --muted: #9bb5a8;
+  --line: rgba(232, 239, 233, 0.14);
+  --error: #ff8a80;
+  --shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+  font-family: 'Source Sans 3', system-ui, sans-serif;
+  line-height: 1.4;
+  color: var(--ink);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: #1a2a22;
+}
+
+button,
+input {
+  font: inherit;
+}
