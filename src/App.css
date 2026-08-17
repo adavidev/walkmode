@@ -98,6 +98,54 @@
   color: var(--forest);
 }
 
+.actions button.active {
+  border-color: #9b2226;
+  background: rgba(155, 34, 38, 0.22);
+}
+
+.keep-away-actions {
+  margin-bottom: 0.55rem;
+}
+
+.pin-list {
+  list-style: none;
+  margin: 0 0 0.95rem;
+  padding: 0;
+  max-height: 8rem;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.pin-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.85rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.pin-list li:last-child {
+  border-bottom: none;
+}
+
+.pin-meta {
+  margin-left: 0.4rem;
+  color: var(--muted);
+}
+
+.pin-remove {
+  border: none;
+  background: transparent;
+  color: var(--error);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0;
+}
+
 .status {
   margin: 0.85rem 0 0;
   font-size: 0.85rem;

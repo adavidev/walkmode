@@ -6,8 +6,12 @@ import {
   type BBox,
   type LatLng,
 } from '../geo'
-import { ElevationSampler } from '../elevation/terrarium'
-import { fetchWaterPolygons, pointInPolygons, type Polygon } from '../osm/water'
+import { getElevationSampler } from '../elevation/terrarium'
+import {
+  blockPolygonsOnGrid,
+  fetchObstacles,
+  type Polygon,
+} from '../osm/overpass'
 
 export type WalkGrid = {
   cols: number
@@ -18,10 +22,12 @@ export type WalkGrid = {
   dLat: number
   dLng: number
   elev: Float32Array
-  /** 0 = impassable (water/cliff/out), 1 = walkable */
+  /** 0 = impassable (water/keep-away), 1 = open, 2 = building (costly) */
   walkable: Uint8Array
   bbox: BBox
   water: Polygon[]
+  buildings: Polygon[]
+  osmCached: boolean
 }
 
 export type GridBuildOptions = {
@@ -29,6 +35,7 @@ export type GridBuildOptions = {
   minCellM: number
   maxCellM: number
   padFraction: number
+  minPadM: number
   cliffGrade: number
   elevZoom: number
 }
@@ -38,6 +45,7 @@ export const DEFAULT_GRID_OPTIONS: GridBuildOptions = {
   minCellM: 10,
   maxCellM: 40,
   padFraction: 0.45,
+  minPadM: 1000,
   cliffGrade: 0.4,
   elevZoom: 12,
 }
@@ -72,11 +80,19 @@ export function nearestWalkable(
   if (!base) return null
   if (grid.walkable[indexOf(grid, base.col, base.row)]) return base
 
-  const maxR = 12
+  const maxR = Math.max(12, Math.ceil(520 / grid.cellSizeM))
   let best: { col: number; row: number } | null = null
   let bestD = Infinity
-  for (let r = Math.max(0, base.row - maxR); r <= Math.min(grid.rows - 1, base.row + maxR); r++) {
-    for (let c = Math.max(0, base.col - maxR); c <= Math.min(grid.cols - 1, base.col + maxR); c++) {
+  for (
+    let r = Math.max(0, base.row - maxR);
+    r <= Math.min(grid.rows - 1, base.row + maxR);
+    r++
+  ) {
+    for (
+      let c = Math.max(0, base.col - maxR);
+      c <= Math.min(grid.cols - 1, base.col + maxR);
+      c++
+    ) {
       if (!grid.walkable[indexOf(grid, c, r)]) continue
       const d = (c - base.col) ** 2 + (r - base.row) ** 2
       if (d < bestD) {
@@ -101,7 +117,8 @@ export async function buildWalkGrid(
     Math.max(opts.minCellM, straight / opts.targetCellsAlong),
   )
 
-  const bbox = expandBBox(start, end, opts.padFraction)
+  const padM = Math.max(straight * opts.padFraction, opts.minPadM)
+  const bbox = expandBBox(start, end, padM)
   const midLat = (bbox.south + bbox.north) / 2
   const dLat = metersToLatDelta(cellSizeM)
   const dLng = metersToLngDelta(cellSizeM, midLat)
@@ -111,13 +128,18 @@ export async function buildWalkGrid(
   const originLat = bbox.south
   const originLng = bbox.west
 
-  onProgress?.('Fetching water…')
+  onProgress?.('Fetching water and buildings…')
   let water: Polygon[] = []
+  let buildings: Polygon[] = []
+  let osmCached = false
   try {
-    water = await fetchWaterPolygons(bbox)
+    const obstacles = await fetchObstacles(bbox)
+    water = obstacles.water
+    buildings = obstacles.buildings
+    osmCached = obstacles.fromCache
+    if (osmCached) onProgress?.('Using cached OSM…')
   } catch {
-    // Overpass can flake; continue without water barriers
-    water = []
+    // Overpass can flake; continue without OSM barriers
   }
 
   const points: LatLng[] = new Array(cols * rows)
@@ -131,13 +153,33 @@ export async function buildWalkGrid(
   }
 
   onProgress?.('Sampling elevation…')
-  const sampler = new ElevationSampler(opts.elevZoom)
+  const sampler = getElevationSampler(opts.elevZoom)
   const elev = await sampler.sampleMany(points, opts.elevZoom)
 
   const walkable = new Uint8Array(cols * rows)
-  for (let i = 0; i < walkable.length; i++) {
-    walkable[i] = pointInPolygons(points[i], water) ? 0 : 1
-  }
+  walkable.fill(1)
+  blockPolygonsOnGrid(
+    walkable,
+    cols,
+    rows,
+    originLat,
+    originLng,
+    dLat,
+    dLng,
+    water,
+    0,
+  )
+  blockPolygonsOnGrid(
+    walkable,
+    cols,
+    rows,
+    originLat,
+    originLng,
+    dLat,
+    dLng,
+    buildings,
+    2,
+  )
 
   return {
     cols,
@@ -151,5 +193,7 @@ export async function buildWalkGrid(
     walkable,
     bbox,
     water,
+    buildings,
+    osmCached,
   }
 }

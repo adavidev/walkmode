@@ -48,21 +48,6 @@ export function latLngToTile(
   }
 }
 
-export function expandBBox(a: LatLng, b: LatLng, padFraction: number): BBox {
-  const south = Math.min(a.lat, b.lat)
-  const north = Math.max(a.lat, b.lat)
-  const west = Math.min(a.lng, b.lng)
-  const east = Math.max(a.lng, b.lng)
-  const latPad = Math.max((north - south) * padFraction, 0.002)
-  const lngPad = Math.max((east - west) * padFraction, 0.002)
-  return {
-    south: south - latPad,
-    west: west - lngPad,
-    north: north + latPad,
-    east: east + lngPad,
-  }
-}
-
 export function metersToLatDelta(meters: number): number {
   return (meters / EARTH_RADIUS_M) * (180 / Math.PI)
 }
@@ -72,6 +57,42 @@ export function metersToLngDelta(meters: number, lat: number): number {
     (meters / (EARTH_RADIUS_M * Math.cos((lat * Math.PI) / 180))) *
     (180 / Math.PI)
   )
+}
+
+/** Pad start/end by the same meters on both axes so N-S / E-W routes still have room. */
+export function expandBBox(a: LatLng, b: LatLng, padMeters: number): BBox {
+  const south = Math.min(a.lat, b.lat)
+  const north = Math.max(a.lat, b.lat)
+  const west = Math.min(a.lng, b.lng)
+  const east = Math.max(a.lng, b.lng)
+  const midLat = (south + north) / 2
+  const latPad = metersToLatDelta(padMeters)
+  const lngPad = metersToLngDelta(padMeters, midLat)
+  return {
+    south: south - latPad,
+    west: west - lngPad,
+    north: north + latPad,
+    east: east + lngPad,
+  }
+}
+
+/** Approximate geodesic circle as a closed lat/lng ring (meter-true at center lat). */
+export function circleRing(
+  center: LatLng,
+  radiusM: number,
+  segments = 64,
+): LatLng[] {
+  const dLat = metersToLatDelta(radiusM)
+  const dLng = metersToLngDelta(radiusM, center.lat)
+  const ring: LatLng[] = []
+  for (let i = 0; i <= segments; i++) {
+    const a = (i / segments) * Math.PI * 2
+    ring.push({
+      lat: center.lat + dLat * Math.sin(a),
+      lng: center.lng + dLng * Math.cos(a),
+    })
+  }
+  return ring
 }
 
 export function formatDistance(meters: number): string {

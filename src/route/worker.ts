@@ -34,6 +34,8 @@ self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
       east: g.originLng + g.cols * g.dLng,
     },
     water: [],
+    buildings: [],
+    osmCached: false,
   }
   const result = findRoute(grid, start, end, params)
   if ('error' in result) {

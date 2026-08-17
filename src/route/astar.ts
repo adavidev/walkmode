@@ -6,6 +6,7 @@ export type RouteParams = {
   kDown: number
   cliffGrade: number
   maxNodes: number
+  kBuilding: number
 }
 
 export const DEFAULT_ROUTE_PARAMS: RouteParams = {
@@ -13,6 +14,7 @@ export const DEFAULT_ROUTE_PARAMS: RouteParams = {
   kDown: 0.4,
   cliffGrade: 0.4,
   maxNodes: 250_000,
+  kBuilding: 20,
 }
 
 /** Map hill-avoidance slider 0..100 → kUp. */
@@ -52,7 +54,9 @@ function edgeCost(
 ): number | null {
   if (dist <= 0) return null
   const grade = Math.abs(dElev) / dist
-  if (grade > params.cliffGrade) return null
+  // Terrarium z12 jumps ~one pixel; ignore tiny dElev so 10 m cells don't
+  // fragment into fake cliffs on flat city blocks.
+  if (grade > params.cliffGrade && Math.abs(dElev) > 6) return null
   if (dElev > 0) {
     return dist * (1 + params.kUp * (dElev / dist))
   }
@@ -163,15 +167,24 @@ export function findRoute(
       const nr = r + dr
       if (nc < 0 || nr < 0 || nc >= grid.cols || nr >= grid.rows) continue
       const ni = indexOf(grid, nc, nr)
-      if (closed[ni] || !grid.walkable[ni]) continue
+      if (closed[ni] || grid.walkable[ni] === 0) continue
+      // Don't clip diagonally through a blocked corner (buildings, water).
+      if (dc !== 0 && dr !== 0) {
+        if (
+          !grid.walkable[indexOf(grid, c + dc, r)] ||
+          !grid.walkable[indexOf(grid, c, r + dr)]
+        ) {
+          continue
+        }
+      }
 
       const llB = cellToLatLng(grid, nc, nr)
       const dist = equirectMeters(llA, llB)
       const dElev = grid.elev[ni] - elevA
       const step = edgeCost(dist, dElev, p)
       if (step == null) continue
-
-      const tentative = gScore[current.i] + step
+      const mul = grid.walkable[ni] === 2 ? p.kBuilding : 1
+      const tentative = gScore[current.i] + step * mul
       if (tentative >= gScore[ni]) continue
       cameFrom[ni] = current.i
       gScore[ni] = tentative

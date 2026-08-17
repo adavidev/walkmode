@@ -2,9 +2,33 @@ import { latLngToTile, type LatLng } from '../geo'
 
 const TILE_URL =
   'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'
+const ELEV_CACHE = 'walkmode-elev-v1'
 
 function decodeTerrarium(r: number, g: number, b: number): number {
   return r * 256 + g + b / 256 - 32768
+}
+
+async function fetchTileBlob(url: string): Promise<Blob> {
+  try {
+    const cache = await caches.open(ELEV_CACHE)
+    const hit = await cache.match(url)
+    if (hit) return hit.blob()
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`Elevation tile failed: ${res.status}`)
+    try {
+      await cache.put(url, res.clone())
+    } catch {
+      // Quota or private mode — still use the fetched tile.
+    }
+    return res.blob()
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith('Elevation tile')) {
+      throw err
+    }
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`Elevation tile failed: ${res.status}`)
+    return res.blob()
+  }
 }
 
 export class ElevationSampler {
@@ -32,9 +56,7 @@ export class ElevationSampler {
       const url = TILE_URL.replace('{z}', String(z))
         .replace('{x}', String(x))
         .replace('{y}', String(y))
-      const res = await fetch(url)
-      if (!res.ok) throw new Error(`Elevation tile ${k} failed: ${res.status}`)
-      const blob = await res.blob()
+      const blob = await fetchTileBlob(url)
       const bitmap = await createImageBitmap(blob)
       const canvas = document.createElement('canvas')
       canvas.width = 256
@@ -67,7 +89,6 @@ export class ElevationSampler {
 
   async sampleMany(points: LatLng[], zoom = this.zoom): Promise<Float32Array> {
     const out = new Float32Array(points.length)
-    // Prefetch unique tiles
     const tiles = new Set<string>()
     for (const p of points) {
       const t = latLngToTile(p.lat, p.lng, zoom)
@@ -88,4 +109,15 @@ export class ElevationSampler {
   clear(): void {
     this.cache.clear()
   }
+}
+
+const samplers = new Map<number, ElevationSampler>()
+
+export function getElevationSampler(zoom = 12): ElevationSampler {
+  let sampler = samplers.get(zoom)
+  if (!sampler) {
+    sampler = new ElevationSampler(zoom)
+    samplers.set(zoom, sampler)
+  }
+  return sampler
 }

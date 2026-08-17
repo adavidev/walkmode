@@ -3,13 +3,17 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { Feature, FeatureCollection } from 'geojson'
 import type { LatLng } from '../geo'
+import { circleRing } from '../geo'
 import type { WalkGrid } from '../route/grid'
 import { cellToLatLng } from '../route/grid'
 import type { RouteResult } from '../route/astar'
+import type { KeepAwayZone } from '../keepaway/store'
+import type { Polygon } from '../osm/overpass'
 
 type Props = {
   start: LatLng | null
   end: LatLng | null
+  keepAwayZones: KeepAwayZone[]
   result: RouteResult | null
   grid: WalkGrid | null
   showGrid: boolean
@@ -19,10 +23,13 @@ type Props = {
 const PATH_SOURCE = 'walkmode-path'
 const GRID_SOURCE = 'walkmode-grid'
 const WATER_SOURCE = 'walkmode-water'
+const BUILDING_SOURCE = 'walkmode-buildings'
+const KEEP_AWAY_SOURCE = 'walkmode-keepaway'
 
 export function MapView({
   start,
   end,
+  keepAwayZones,
   result,
   grid,
   showGrid,
@@ -32,6 +39,7 @@ export function MapView({
   const mapRef = useRef<maplibregl.Map | null>(null)
   const startMarker = useRef<maplibregl.Marker | null>(null)
   const endMarker = useRef<maplibregl.Marker | null>(null)
+  const keepAwayMarkers = useRef<maplibregl.Marker[]>([])
   const onClickRef = useRef(onMapClick)
   onClickRef.current = onMapClick
 
@@ -67,6 +75,68 @@ export function MapView({
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
     map.on('load', () => {
+      map.addSource(WATER_SOURCE, {
+        type: 'geojson',
+        data: emptyMultiPoly(),
+      })
+      map.addLayer({
+        id: 'water-fill',
+        type: 'fill',
+        source: WATER_SOURCE,
+        paint: {
+          'fill-color': '#1d4e89',
+          'fill-opacity': 0.25,
+        },
+      })
+
+      map.addSource(BUILDING_SOURCE, {
+        type: 'geojson',
+        data: emptyMultiPoly(),
+      })
+      map.addLayer({
+        id: 'building-fill',
+        type: 'fill',
+        source: BUILDING_SOURCE,
+        paint: {
+          'fill-color': '#c17f59',
+          'fill-opacity': 0.4,
+        },
+      })
+      map.addLayer({
+        id: 'building-outline',
+        type: 'line',
+        source: BUILDING_SOURCE,
+        paint: {
+          'line-color': '#8a4b2e',
+          'line-width': 1,
+          'line-opacity': 0.7,
+        },
+      })
+
+      map.addSource(KEEP_AWAY_SOURCE, {
+        type: 'geojson',
+        data: emptyMultiPoly(),
+      })
+      map.addLayer({
+        id: 'keepaway-fill',
+        type: 'fill',
+        source: KEEP_AWAY_SOURCE,
+        paint: {
+          'fill-color': '#9b2226',
+          'fill-opacity': 0.22,
+        },
+      })
+      map.addLayer({
+        id: 'keepaway-outline',
+        type: 'line',
+        source: KEEP_AWAY_SOURCE,
+        paint: {
+          'line-color': '#9b2226',
+          'line-width': 2,
+          'line-opacity': 0.85,
+        },
+      })
+
       map.addSource(PATH_SOURCE, {
         type: 'geojson',
         data: emptyLine(),
@@ -96,25 +166,13 @@ export function MapView({
             'case',
             ['==', ['get', 'walkable'], 1],
             '#2d6a4f',
+            ['==', ['get', 'walkable'], 2],
+            '#c17f59',
             '#1d3557',
           ],
           'circle-opacity': 0.45,
         },
         layout: { visibility: 'none' },
-      })
-
-      map.addSource(WATER_SOURCE, {
-        type: 'geojson',
-        data: emptyMultiPoly(),
-      })
-      map.addLayer({
-        id: 'water-fill',
-        type: 'fill',
-        source: WATER_SOURCE,
-        paint: {
-          'fill-color': '#1d4e89',
-          'fill-opacity': 0.25,
-        },
       })
     })
 
@@ -126,6 +184,8 @@ export function MapView({
     return () => {
       startMarker.current?.remove()
       endMarker.current?.remove()
+      for (const m of keepAwayMarkers.current) m.remove()
+      keepAwayMarkers.current = []
       map.remove()
       mapRef.current = null
     }
@@ -165,6 +225,41 @@ export function MapView({
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
+
+    for (const m of keepAwayMarkers.current) m.remove()
+    keepAwayMarkers.current = (keepAwayZones ?? []).map((z) =>
+      new maplibregl.Marker({ color: '#9b2226' })
+        .setLngLat([z.lng, z.lat])
+        .addTo(map),
+    )
+
+    const apply = () => {
+      const src = map.getSource(KEEP_AWAY_SOURCE) as
+        | maplibregl.GeoJSONSource
+        | undefined
+      if (!src) return
+      const features = (keepAwayZones ?? [])
+        .filter((z) => z.radiusM > 0)
+        .map((z) => {
+          const ring = circleRing({ lat: z.lat, lng: z.lng }, z.radiusM)
+          return {
+            type: 'Feature' as const,
+            properties: {},
+            geometry: {
+              type: 'Polygon' as const,
+              coordinates: [ring.map((p) => [p.lng, p.lat])],
+            },
+          }
+        })
+      src.setData({ type: 'FeatureCollection', features })
+    }
+    if (map.isStyleLoaded()) apply()
+    else map.once('load', apply)
+  }, [keepAwayZones])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
     const apply = () => {
       const src = map.getSource(PATH_SOURCE) as maplibregl.GeoJSONSource | undefined
       if (!src) return
@@ -182,6 +277,14 @@ export function MapView({
       })
       const bounds = new maplibregl.LngLatBounds()
       for (const p of result.path) bounds.extend([p.lng, p.lat])
+      if (
+        bounds.getWest() === bounds.getEast() ||
+        bounds.getSouth() === bounds.getNorth()
+      ) {
+        const c = bounds.getCenter()
+        bounds.extend([c.lng - 0.002, c.lat - 0.002])
+        bounds.extend([c.lng + 0.002, c.lat + 0.002])
+      }
       map.fitBounds(bounds, { padding: 80, maxZoom: 15 })
     }
     if (map.isStyleLoaded()) apply()
@@ -198,15 +301,18 @@ export function MapView({
       const waterSrc = map.getSource(WATER_SOURCE) as
         | maplibregl.GeoJSONSource
         | undefined
-      if (!gridSrc || !waterSrc) return
+      const buildingSrc = map.getSource(BUILDING_SOURCE) as
+        | maplibregl.GeoJSONSource
+        | undefined
+      if (!gridSrc || !waterSrc || !buildingSrc) return
 
       if (!grid) {
         gridSrc.setData(emptyMulti())
         waterSrc.setData(emptyMultiPoly())
+        buildingSrc.setData(emptyMultiPoly())
         return
       }
 
-      // Subsample grid for display
       const step = Math.max(1, Math.floor(Math.max(grid.cols, grid.rows) / 80))
       const features: Feature[] = []
       for (let r = 0; r < grid.rows; r += step) {
@@ -221,21 +327,8 @@ export function MapView({
         }
       }
       gridSrc.setData({ type: 'FeatureCollection', features })
-
-      waterSrc.setData({
-        type: 'FeatureCollection',
-        features: grid.water.map((poly) => ({
-          type: 'Feature' as const,
-          properties: {},
-          geometry: {
-            type: 'Polygon' as const,
-            coordinates: [
-              poly.outer.map((p) => [p.lng, p.lat]),
-              ...poly.holes.map((h) => h.map((p) => [p.lng, p.lat])),
-            ],
-          },
-        })),
-      })
+      waterSrc.setData(polygonsToCollection(grid.water))
+      buildingSrc.setData(polygonsToCollection(grid.buildings))
     }
     if (map.isStyleLoaded()) apply()
     else map.once('load', apply)
@@ -257,6 +350,23 @@ export function MapView({
   }, [showGrid])
 
   return <div className="map" ref={containerRef} />
+}
+
+function polygonsToCollection(polygons: Polygon[]): FeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: polygons.map((poly) => ({
+      type: 'Feature' as const,
+      properties: {},
+      geometry: {
+        type: 'Polygon' as const,
+        coordinates: [
+          poly.outer.map((p) => [p.lng, p.lat]),
+          ...poly.holes.map((h) => h.map((p) => [p.lng, p.lat])),
+        ],
+      },
+    })),
+  }
 }
 
 function emptyLine(): Feature {
