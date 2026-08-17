@@ -20,7 +20,7 @@ npm run dev
 
 ## Deploy demo to [adavidev.github.io](https://adavidev.github.io/demos/walkmode/)
 
-Pushing to `main` runs `.github/workflows/publish-demo.yml`, which rebuilds the demo and pushes it to the profile site repo. Add a repo secret **`SITE_PUSH_TOKEN`**: a fine-grained PAT with **Contents: Read and write** on `adavidev/adavidev.github.io`.
+Pushing to `main` triggers a rebuild on the profile site via GitHub Actions. Add a repo secret **`SITE_DISPATCH_TOKEN`**: a fine-grained PAT with **Actions: Read and write** on `adavidev/adavidev.github.io`.
 
 Elevation tiles and OSM polygons are cached locally so repeat routes in the same area do not hit S3/Overpass every time.
 
