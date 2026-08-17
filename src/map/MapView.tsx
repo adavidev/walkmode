@@ -8,7 +8,7 @@ import type { WalkGrid } from '../route/grid'
 import { cellToLatLng } from '../route/grid'
 import type { RouteResult } from '../route/astar'
 import type { KeepAwayZone } from '../keepaway/store'
-import type { Polygon } from '../osm/overpass'
+import type { BarrierRoad, Crossing, Polygon } from '../osm/overpass'
 
 type Props = {
   start: LatLng | null
@@ -24,6 +24,8 @@ const PATH_SOURCE = 'walkmode-path'
 const GRID_SOURCE = 'walkmode-grid'
 const WATER_SOURCE = 'walkmode-water'
 const BUILDING_SOURCE = 'walkmode-buildings'
+const BARRIER_SOURCE = 'walkmode-barriers'
+const CROSSING_SOURCE = 'walkmode-crossings'
 const KEEP_AWAY_SOURCE = 'walkmode-keepaway'
 
 export function MapView({
@@ -110,6 +112,50 @@ export function MapView({
           'line-color': '#8a4b2e',
           'line-width': 1,
           'line-opacity': 0.7,
+        },
+      })
+
+      map.addSource(BARRIER_SOURCE, {
+        type: 'geojson',
+        data: emptyMulti(),
+      })
+      map.addLayer({
+        id: 'barrier-line',
+        type: 'line',
+        source: BARRIER_SOURCE,
+        paint: {
+          'line-color': '#3d405b',
+          'line-width': 6,
+          'line-opacity': 0.45,
+        },
+      })
+
+      map.addSource(CROSSING_SOURCE, {
+        type: 'geojson',
+        data: emptyMulti(),
+      })
+      map.addLayer({
+        id: 'crossing-line',
+        type: 'line',
+        source: CROSSING_SOURCE,
+        filter: ['==', ['geometry-type'], 'LineString'],
+        paint: {
+          'line-color': '#e9c46a',
+          'line-width': 5,
+          'line-opacity': 0.9,
+        },
+      })
+      map.addLayer({
+        id: 'crossing-point',
+        type: 'circle',
+        source: CROSSING_SOURCE,
+        filter: ['==', ['geometry-type'], 'Point'],
+        paint: {
+          'circle-color': '#e9c46a',
+          'circle-radius': 5,
+          'circle-opacity': 0.9,
+          'circle-stroke-color': '#7dcfb6',
+          'circle-stroke-width': 1.5,
         },
       })
 
@@ -304,12 +350,22 @@ export function MapView({
       const buildingSrc = map.getSource(BUILDING_SOURCE) as
         | maplibregl.GeoJSONSource
         | undefined
-      if (!gridSrc || !waterSrc || !buildingSrc) return
+      const barrierSrc = map.getSource(BARRIER_SOURCE) as
+        | maplibregl.GeoJSONSource
+        | undefined
+      const crossingSrc = map.getSource(CROSSING_SOURCE) as
+        | maplibregl.GeoJSONSource
+        | undefined
+      if (!gridSrc || !waterSrc || !buildingSrc || !barrierSrc || !crossingSrc) {
+        return
+      }
 
       if (!grid) {
         gridSrc.setData(emptyMulti())
         waterSrc.setData(emptyMultiPoly())
         buildingSrc.setData(emptyMultiPoly())
+        barrierSrc.setData(emptyMulti())
+        crossingSrc.setData(emptyMulti())
         return
       }
 
@@ -329,6 +385,8 @@ export function MapView({
       gridSrc.setData({ type: 'FeatureCollection', features })
       waterSrc.setData(polygonsToCollection(grid.water))
       buildingSrc.setData(polygonsToCollection(grid.buildings))
+      barrierSrc.setData(barriersToCollection(grid.barriers ?? []))
+      crossingSrc.setData(crossingsToCollection(grid.crossings ?? []))
     }
     if (map.isStyleLoaded()) apply()
     else map.once('load', apply)
@@ -350,6 +408,45 @@ export function MapView({
   }, [showGrid])
 
   return <div className="map" ref={containerRef} />
+}
+
+function barriersToCollection(roads: BarrierRoad[]): FeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: roads.map((road) => ({
+      type: 'Feature' as const,
+      properties: {},
+      geometry: {
+        type: 'LineString' as const,
+        coordinates: road.points.map((p) => [p.lng, p.lat]),
+      },
+    })),
+  }
+}
+
+function crossingsToCollection(crossings: Crossing[]): FeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: crossings.map((x) =>
+      x.points.length > 1
+        ? {
+            type: 'Feature' as const,
+            properties: {},
+            geometry: {
+              type: 'LineString' as const,
+              coordinates: x.points.map((p) => [p.lng, p.lat]),
+            },
+          }
+        : {
+            type: 'Feature' as const,
+            properties: {},
+            geometry: {
+              type: 'Point' as const,
+              coordinates: [x.points[0].lng, x.points[0].lat],
+            },
+          },
+    ),
+  }
 }
 
 function polygonsToCollection(polygons: Polygon[]): FeatureCollection {

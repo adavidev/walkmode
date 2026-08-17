@@ -50,7 +50,7 @@ export function Controls({
     <aside className="panel">
       <header className="brand">
         <h1>walkmode</h1>
-        <p>As the bird flies — contour hills, skip buildings.</p>
+        <p>As the bird flies — contour hills, skip buildings, cross at walkways.</p>
       </header>
 
       <p className="hint">

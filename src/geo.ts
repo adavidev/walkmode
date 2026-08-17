@@ -25,6 +25,83 @@ export function equirectMeters(a: LatLng, b: LatLng): number {
   return Math.hypot(dx, dy)
 }
 
+/** Distance from a point to a polyline in meters (equirectangular). */
+export function pointToPolylineMeters(point: LatLng, line: LatLng[]): number {
+  if (line.length === 0) return Infinity
+  if (line.length === 1) return equirectMeters(point, line[0])
+  let best = Infinity
+  for (let i = 1; i < line.length; i++) {
+    const d = pointToSegmentMeters(point, line[i - 1], line[i])
+    if (d < best) best = d
+  }
+  return best
+}
+
+export function pointToSegmentMeters(p: LatLng, a: LatLng, b: LatLng): number {
+  const midLat = ((a.lat + b.lat) / 2) * (Math.PI / 180)
+  const mx = Math.cos(midLat) * EARTH_RADIUS_M * (Math.PI / 180)
+  const my = EARTH_RADIUS_M * (Math.PI / 180)
+  const bx = (b.lng - a.lng) * mx
+  const by = (b.lat - a.lat) * my
+  const px = (p.lng - a.lng) * mx
+  const py = (p.lat - a.lat) * my
+  const ab2 = bx * bx + by * by
+  if (ab2 < 1e-6) return Math.hypot(px, py)
+  let t = (px * bx + py * by) / ab2
+  if (t < 0) t = 0
+  else if (t > 1) t = 1
+  return Math.hypot(px - t * bx, py - t * by)
+}
+
+/** Move from `origin` along `bearingRad` (east=0, north=π/2) by `meters`. */
+export function offsetMeters(
+  origin: LatLng,
+  bearingRad: number,
+  meters: number,
+): LatLng {
+  const latRad = (origin.lat * Math.PI) / 180
+  const dLat = (meters * Math.cos(bearingRad)) / EARTH_RADIUS_M
+  const dLng =
+    (meters * Math.sin(bearingRad)) /
+    (EARTH_RADIUS_M * Math.cos(latRad))
+  return {
+    lat: origin.lat + (dLat * 180) / Math.PI,
+    lng: origin.lng + (dLng * 180) / Math.PI,
+  }
+}
+
+/** Segment intersection in local meters; returns lat/lng or null. */
+export function segmentIntersection(
+  a: LatLng,
+  b: LatLng,
+  c: LatLng,
+  d: LatLng,
+): LatLng | null {
+  const midLat = ((a.lat + b.lat + c.lat + d.lat) / 4) * (Math.PI / 180)
+  const mx = Math.cos(midLat) * EARTH_RADIUS_M * (Math.PI / 180)
+  const my = EARTH_RADIUS_M * (Math.PI / 180)
+  const toXY = (p: LatLng) => ({
+    x: (p.lng - a.lng) * mx,
+    y: (p.lat - a.lat) * my,
+  })
+  const p1 = toXY(a)
+  const p2 = toXY(b)
+  const p3 = toXY(c)
+  const p4 = toXY(d)
+  const den =
+    (p1.x - p2.x) * (p3.y - p4.y) - (p1.y - p2.y) * (p3.x - p4.x)
+  if (Math.abs(den) < 1e-9) return null
+  const t =
+    ((p1.x - p3.x) * (p3.y - p4.y) - (p1.y - p3.y) * (p3.x - p4.x)) / den
+  const u =
+    ((p1.x - p3.x) * (p1.y - p2.y) - (p1.y - p3.y) * (p1.x - p2.x)) / den
+  if (t < 0 || t > 1 || u < 0 || u > 1) return null
+  return {
+    lat: a.lat + (t * (b.lat - a.lat)),
+    lng: a.lng + (t * (b.lng - a.lng)),
+  }
+}
+
 export function latLngToTile(
   lat: number,
   lng: number,

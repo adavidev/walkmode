@@ -8,8 +8,11 @@ import {
 } from '../geo'
 import { getElevationSampler } from '../elevation/terrarium'
 import {
+  applyLimitedAccess,
   blockPolygonsOnGrid,
   fetchObstacles,
+  type BarrierRoad,
+  type Crossing,
   type Polygon,
 } from '../osm/overpass'
 
@@ -22,11 +25,13 @@ export type WalkGrid = {
   dLat: number
   dLng: number
   elev: Float32Array
-  /** 0 = impassable (water/keep-away), 1 = open, 2 = building (costly) */
+  /** 0 = impassable (water/keep-away/limited-access), 1 = open, 2 = building (costly) */
   walkable: Uint8Array
   bbox: BBox
   water: Polygon[]
   buildings: Polygon[]
+  barriers: BarrierRoad[]
+  crossings: Crossing[]
   osmCached: boolean
 }
 
@@ -128,14 +133,18 @@ export async function buildWalkGrid(
   const originLat = bbox.south
   const originLng = bbox.west
 
-  onProgress?.('Fetching water and buildings…')
+  onProgress?.('Fetching water, buildings, and crossings…')
   let water: Polygon[] = []
   let buildings: Polygon[] = []
+  let barriers: BarrierRoad[] = []
+  let crossings: Crossing[] = []
   let osmCached = false
   try {
     const obstacles = await fetchObstacles(bbox)
     water = obstacles.water
     buildings = obstacles.buildings
+    barriers = obstacles.barriers
+    crossings = obstacles.crossings
     osmCached = obstacles.fromCache
     if (osmCached) onProgress?.('Using cached OSM…')
   } catch {
@@ -180,6 +189,18 @@ export async function buildWalkGrid(
     buildings,
     2,
   )
+  applyLimitedAccess(
+    walkable,
+    cols,
+    rows,
+    originLat,
+    originLng,
+    dLat,
+    dLng,
+    cellSizeM,
+    barriers,
+    crossings,
+  )
 
   return {
     cols,
@@ -194,6 +215,8 @@ export async function buildWalkGrid(
     bbox,
     water,
     buildings,
+    barriers,
+    crossings,
     osmCached,
   }
 }

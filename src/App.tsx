@@ -68,7 +68,7 @@ export default function App() {
         })
         setResult(route)
         setStatus(
-          `Done · ${route.nodesExpanded.toLocaleString()} nodes · cell ${g.cellSizeM.toFixed(0)} m · ${g.buildings.length} buildings${g.osmCached ? ' · cached OSM' : ''}`,
+          `Done · ${route.nodesExpanded.toLocaleString()} nodes · cell ${g.cellSizeM.toFixed(0)} m · ${g.buildings.length} buildings · ${g.barriers.length} limited-access · ${g.crossings.length} crossings${g.osmCached ? ' · cached OSM' : ''}`,
         )
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))

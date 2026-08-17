@@ -1,0 +1,47 @@
+name: Publish demo to profile site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout walkmode
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build walkmode
+        run: |
+          npm ci || npm install
+          npx vite build --base /demos/walkmode/
+
+      - name: Checkout profile site
+        uses: actions/checkout@v4
+        with:
+          repository: adavidev/adavidev.github.io
+          token: ${{ secrets.SITE_PUSH_TOKEN }}
+          path: site
+
+      - name: Update demo and push
+        working-directory: site
+        run: |
+          rm -rf demos/walkmode
+          cp -R ../dist demos/walkmode
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add demos/walkmode
+          if git diff --staged --quiet; then
+            echo "Demo unchanged — nothing to push."
+            exit 0
+          fi
+          git commit -m "Update Walkmode demo (${GITHUB_SHA:0:7})."
+          git push
